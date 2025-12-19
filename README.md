@@ -8,7 +8,7 @@ Raporuna göre projen şu bileşenlerden oluşuyor:
 |---------|----------|
 | ESP32 | Fake IoT cihazı (HTTP/Telnet/SSH banner) |
 | Kali Linux VM | Cowrie honeypot + log analizi |
-| İzole Ağ | 192.168.100.0/24 subnet |
+| İzole Ağ | 172.20.10.0/24 subnet |
 | Dashboard | Log görselleştirme |
 | Firewall | iptables kuralları |
 
@@ -36,7 +36,7 @@ Ekle:
 ```
 auto eth1
 iface eth1 inet static
-    address 192.168.100.10
+    address 172.20.10.13
     netmask 255.255.255.0
 ```
 
@@ -224,7 +224,7 @@ const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 // Kali VM IP adresi (log gönderimi için)
-const char* LOG_SERVER = "http://192.168.100.10:5000/log";
+const char* LOG_SERVER = "http://172.20.10.13:5000/log";
 
 // Statik IP (opsiyonel)
 IPAddress local_IP(192, 168, 100, 50);
@@ -1316,7 +1316,7 @@ iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
 
 # İzole ağ içinde çıkışa izin ver (ESP32 ile iletişim)
-iptables -A OUTPUT -d 192.168.100.0/24 -j ACCEPT
+iptables -A OUTPUT -d 172.20.10.0/24 -j ACCEPT
 
 # Dashboard'a bağlantı için (ESP32'den log alma)
 iptables -A OUTPUT -p tcp --dport 5000 -j ACCEPT
@@ -1566,18 +1566,18 @@ sudo tcpdump -i eth1 -w ~/honeypot-dashboard/logs/capture.pcap
 
 ```bash
 # Nmap port tarama
-nmap -sV -p 22,23,80 192.168.100.50
+nmap -sV -p 22,23,80 172.20.10.9
 
 # Hydra brute-force testi
-hydra -L users.txt -P passwords.txt 192.168.100.50 ssh
-hydra -L users.txt -P passwords.txt 192.168.100.50 telnet
+hydra -L users.txt -P passwords.txt 172.20.10.9 ssh
+hydra -L users.txt -P passwords.txt 172.20.10.9 telnet
 
 # HTTP login testi
-curl -X POST http://192.168.100.50/login \
+curl -X POST http://172.20.10.9/login \
      -d "username=admin&password=admin"
 
 # Telnet bağlantı testi
-telnet 192.168.100.50
+telnet 172.20.10.9
 ```
 
 ### 7.3 Kontrol Listesi
@@ -1623,14 +1623,11 @@ honeypot-project/
 1. **WiFi bilgilerini güncelle**: ESP32 kodunda `WIFI_SSID` ve `WIFI_PASSWORD` değerlerini değiştir
 
 2. **IP adreslerini kontrol et**: 
-   - ESP32: 192.168.100.50
-   - Kali VM: 192.168.100.10
+   - ESP32: 172.20.10.9
+   - Kali VM: 172.20.10.13
    - Bu değerleri kendi ağ yapına göre düzenle
 
 3. **İzolasyon kritik**: Honeypot'u asla ana ağında açık bırakma
 
-4. **Demo için**: Tarayıcıda http://192.168.100.10:5000 adresinden dashboard'a eriş
+4. **Demo için**: Tarayıcıda http://172.20.10.13:5000 adresinden dashboard'a eriş
 
----
-
-Sorularım var mı? Herhangi bir adımda yardım istersen söyle!

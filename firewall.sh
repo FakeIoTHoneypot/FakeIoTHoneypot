@@ -65,7 +65,7 @@ iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
 
 # İzole ağ içinde çıkışa izin ver
-iptables -A OUTPUT -d 192.168.100.0/24 -j ACCEPT
+iptables -A OUTPUT -d 172.20.10.0/24 -j ACCEPT
 
 # Dashboard bağlantısı
 iptables -A OUTPUT -p tcp --dport 5000 -j ACCEPT

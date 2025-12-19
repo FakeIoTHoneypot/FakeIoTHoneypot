@@ -11,11 +11,11 @@ const char* AP_SSID = "SmartCam_Setup_5G";
 const char* AP_PASSWORD = "";  // Şifresiz (daha çekici)
 
 // STA Ayarları (Kali ile iletişim için gerçek modem)
-const char* STA_SSID = "BerkCakmak";           // BURAYA KENDİ MODEM ADI
-const char* STA_PASSWORD = "Berk0202";         // BURAYA KENDİ MODEM ŞİFRESİ
+const char* STA_SSID = "AbdullahEsin";           // BURAYA KENDİ MODEM ADI
+const char* STA_PASSWORD = "apobabaa";         // BURAYA KENDİ MODEM ŞİFRESİ
 
 // Kali VM IP (Flask sunucusu çalışacak)
-const char* KALI_IP = "192.168.100.10";
+const char* KALI_IP = "172.20.10.13";
 const int KALI_PORT = 5000;
 
 // AP IP yapılandırması
@@ -24,9 +24,9 @@ IPAddress apGateway(192, 168, 4, 1);
 IPAddress apSubnet(255, 255, 255, 0);
 
 // ESP32'nin STA modunda alacağı statik IP (ÖZEL: ESP32'nin izole ağdaki IP'si)
-IPAddress staticIP(192, 168, 100, 50);        // ESP32 IP
-IPAddress gateway(192, 168, 100, 1);           // Gateway (router)
-IPAddress subnet(255, 255, 255, 0);
+IPAddress staticIP(172, 20, 10, 9);      
+IPAddress gateway(172, 20, 10, 1);       
+IPAddress subnet(255, 255, 255, 240);    
 
 // ==================== SERVER TANIMLARI ====================
 WebServer http(80);
@@ -319,10 +319,22 @@ void setup() {
     Serial.print("[STA] Connecting to " + String(STA_SSID));
     
     // Statik IP ata
+    //if (!WiFi.config(staticIP, gateway, subnet)) {
+    //    Serial.println("\n[ERROR] STA Failed to configure");
+    //}
+    // STA konfigürasyonu (Kali ile iletişim için)
+    Serial.print("[STA] Connecting to " + String(STA_SSID));
+
+    // --- EK: temiz başlangıç önerilir
+    WiFi.persistent(false);
+    WiFi.disconnect(true, true);
+    delay(200);
+
+    // --- STATIK IP: WiFi.begin'den ÖNCE çağrılmalı
     if (!WiFi.config(staticIP, gateway, subnet)) {
         Serial.println("\n[ERROR] STA Failed to configure");
     }
-    
+
     WiFi.begin(STA_SSID, STA_PASSWORD);
     
     int tries = 0;
