@@ -3,63 +3,105 @@
 #include <DNSServer.h>
 #include <HTTPClient.h>
 #include <SPIFFS.h>
+#include <time.h>
 
+// ==================== YAPILANDIRMA ====================
 // AP Ayarları (Saldırganların bağlanacağı sahte IoT ağı)
-const char* AP_SSID = "TEDU_Camera_System";
-const char* AP_PASSWORD = "";
+const char* AP_SSID = "SmartCam_Setup_5G";
+const char* AP_PASSWORD = "";  // Şifresiz (daha çekici)
 
 // STA Ayarları (Kali ile iletişim için gerçek modem)
-const char* STA_SSID = "YOUR_WIFI_SSID";
-const char* STA_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* STA_SSID = "BerkCakmak";           // BURAYA KENDİ MODEM ADI
+const char* STA_PASSWORD = "Berk0202";         // BURAYA KENDİ MODEM ŞİFRESİ
 
-// Kali VM
-const char* KALI_IP = "192.168.1.110";
+// Kali VM IP (Flask sunucusu çalışacak)
+const char* KALI_IP = "192.168.100.10";
 const int KALI_PORT = 5000;
 
-// AP IP
+// AP IP yapılandırması
 IPAddress apIP(192, 168, 4, 1);
 IPAddress apGateway(192, 168, 4, 1);
 IPAddress apSubnet(255, 255, 255, 0);
 
+// ESP32'nin STA modunda alacağı statik IP (ÖZEL: ESP32'nin izole ağdaki IP'si)
+IPAddress staticIP(192, 168, 100, 50);        // ESP32 IP
+IPAddress gateway(192, 168, 100, 1);           // Gateway (router)
+IPAddress subnet(255, 255, 255, 0);
+
+// ==================== SERVER TANIMLARI ====================
 WebServer http(80);
-WiFiServer telnet(23);
-WiFiServer ssh(22);
+WiFiServer telnetServer(23);
+WiFiServer sshServer(22);
 DNSServer dns;
 
+// ==================== İSTATİSTİKLER ====================
 bool staConnected = false;
 int httpLogins = 0;
 int telnetLogins = 0;
 int sshProbes = 0;
 
+// ==================== LOG FONKSIYONU ====================
 void sendLog(String protocol, String srcIP, String user, String pass, String extra) {
-    String json = "{\"protocol\":\"" + protocol + "\",\"source_ip\":\"" + srcIP + "\"";
+    // JSON formatında log oluştur
+    String json = "{";
+    json += "\"timestamp\":\"" + getTimestamp() + "\",";
+    json += "\"type\":\"" + protocol + "\",";
+    json += "\"source_ip\":\"" + srcIP + "\"";
+    
     if (user.length() > 0) json += ",\"username\":\"" + user + "\"";
     if (pass.length() > 0) json += ",\"password\":\"" + pass + "\"";
-    if (extra.length() > 0) json += ",\"extra\":\"" + extra + "\"";
-    json += ",\"timestamp\":" + String(millis()/1000) + "}";
+    if (extra.length() > 0) json += ",\"payload\":\"" + extra + "\"";
     
+    json += "}";
+    
+    // Serial'e yazdır
     Serial.println("[LOG] " + json);
     
+    // SPIFFS'e yaz (backup)
     File f = SPIFFS.open("/logs.jsonl", FILE_APPEND);
-    if (f) { f.println(json); f.close(); }
+    if (f) { 
+        f.println(json); 
+        f.close(); 
+    }
     
+    // Kali VM'e gönder
     if (staConnected && WiFi.status() == WL_CONNECTED) {
         HTTPClient client;
-        client.begin("http://" + String(KALI_IP) + ":" + String(KALI_PORT) + "/log");
+        String url = "http://" + String(KALI_IP) + ":" + String(KALI_PORT) + "/log";
+        client.begin(url);
         client.addHeader("Content-Type", "application/json");
         client.setTimeout(3000);
+        
         int code = client.POST(json);
-        if (code > 0) Serial.println("[HTTP] Sent to Kali: " + String(code));
-        else Serial.println("[HTTP] Failed: " + client.errorToString(code));
+        
+        if (code > 0) {
+            Serial.println("[HTTP->Kali] Response: " + String(code));
+        } else {
+            Serial.println("[HTTP->Kali] Failed: " + client.errorToString(code));
+        }
+        
         client.end();
     }
 }
 
+// ==================== ZAMAN FONKSIYONU ====================
+String getTimestamp() {
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        return String(millis() / 1000);
+    }
+    
+    char buffer[30];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    return String(buffer);
+}
+
+// ==================== HTTP İŞLEYİCİLERİ ====================
 void handleRoot() {
     String ip = http.client().remoteIP().toString();
-    sendLog("http", ip, "", "", "page_access");
+    sendLog("HTTP_ACCESS", ip, "", "", "page_access");
     
-    String html = R"(
+    String html = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -105,7 +147,8 @@ void handleRoot() {
     </div>
 </body>
 </html>
-)";
+)rawliteral";
+    
     http.send(200, "text/html", html);
 }
 
@@ -121,9 +164,9 @@ void handleLogin() {
     Serial.println("Pass: " + pass);
     Serial.println("================================\n");
     
-    sendLog("http", ip, user, pass, "login_attempt");
+    sendLog("HTTP_LOGIN", ip, user, pass, "");
     
-    String html = R"(
+    String html = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -146,16 +189,19 @@ void handleLogin() {
     </div>
 </body>
 </html>
-)";
+)rawliteral";
+    
     http.send(401, "text/html", html);
 }
 
 void handleNotFound() {
     String ip = http.client().remoteIP().toString();
     String path = http.uri();
-    sendLog("http", ip, "", "", "scan:" + path);
+    sendLog("HTTP_SCAN", ip, "", "", path);
     
-    if (path == "/generate_204" || path == "/gen_204" || path == "/hotspot-detect.html" || path == "/ncsi.txt") {
+    // Captive portal redirects
+    if (path == "/generate_204" || path == "/gen_204" || 
+        path == "/hotspot-detect.html" || path == "/ncsi.txt") {
         http.sendHeader("Location", "http://192.168.4.1/");
         http.send(302, "text/html", "");
     } else {
@@ -163,12 +209,13 @@ void handleNotFound() {
     }
 }
 
+// ==================== TELNET İŞLEYİCİSİ ====================
 void handleTelnet() {
-    WiFiClient client = telnet.available();
+    WiFiClient client = telnetServer.available();
     if (!client) return;
     
     String ip = client.remoteIP().toString();
-    sendLog("telnet", ip, "", "", "connect");
+    sendLog("TELNET_CONNECT", ip, "", "", "");
     Serial.println("[TELNET] Connection from " + ip);
     
     client.println("\r\nSmart Camera SC-400X");
@@ -181,11 +228,16 @@ void handleTelnet() {
         client.print("login: ");
         String user = "";
         unsigned long inputTimeout = millis() + 20000;
+        
         while (client.connected() && millis() < inputTimeout) {
             if (client.available()) {
                 char c = client.read();
-                if (c == '\n' || c == '\r') { if (user.length() > 0) break; }
-                else if (c >= 32 && c <= 126) { user += c; client.print(c); }
+                if (c == '\n' || c == '\r') { 
+                    if (user.length() > 0) break; 
+                } else if (c >= 32 && c <= 126) { 
+                    user += c; 
+                    client.print(c); 
+                }
             }
             delay(1);
         }
@@ -195,6 +247,7 @@ void handleTelnet() {
         client.print("Password: ");
         String pass = "";
         inputTimeout = millis() + 20000;
+        
         while (client.connected() && millis() < inputTimeout) {
             if (client.available()) {
                 char c = client.read();
@@ -212,7 +265,7 @@ void handleTelnet() {
         Serial.println("Pass: " + pass);
         Serial.println("==================================\n");
         
-        sendLog("telnet", ip, user, pass, "login_attempt");
+        sendLog("TELNET_LOGIN", ip, user, pass, "");
         
         delay(800);
         client.println("Login incorrect\r\n");
@@ -223,13 +276,14 @@ void handleTelnet() {
     client.stop();
 }
 
+// ==================== SSH İŞLEYİCİSİ ====================
 void handleSSH() {
-    WiFiClient client = ssh.available();
+    WiFiClient client = sshServer.available();
     if (!client) return;
     
     String ip = client.remoteIP().toString();
     sshProbes++;
-    sendLog("ssh", ip, "", "", "banner_probe");
+    sendLog("SSH_PROBE", ip, "", "", "");
     Serial.println("[SSH] Probe from " + ip);
     
     client.print("SSH-2.0-OpenSSH_7.4p1 Debian-10+deb9u7\r\n");
@@ -237,6 +291,7 @@ void handleSSH() {
     client.stop();
 }
 
+// ==================== SETUP ====================
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -244,17 +299,32 @@ void setup() {
     Serial.println("\n[ESP32 IoT Honeypot]");
     Serial.println("====================\n");
     
-    SPIFFS.begin(true);
+    // SPIFFS başlat
+    if (!SPIFFS.begin(true)) {
+        Serial.println("[ERROR] SPIFFS mount failed");
+    } else {
+        Serial.println("[OK] SPIFFS mounted");
+    }
     
+    // Dual mode: AP + STA
     WiFi.mode(WIFI_AP_STA);
     
+    // AP konfigürasyonu (saldırganlar için)
     WiFi.softAPConfig(apIP, apGateway, apSubnet);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
     Serial.println("[AP] SSID: " + String(AP_SSID));
     Serial.println("[AP] IP: " + WiFi.softAPIP().toString());
     
+    // STA konfigürasyonu (Kali ile iletişim için)
     Serial.print("[STA] Connecting to " + String(STA_SSID));
+    
+    // Statik IP ata
+    if (!WiFi.config(staticIP, gateway, subnet)) {
+        Serial.println("\n[ERROR] STA Failed to configure");
+    }
+    
     WiFi.begin(STA_SSID, STA_PASSWORD);
+    
     int tries = 0;
     while (WiFi.status() != WL_CONNECTED && tries < 30) {
         delay(500);
@@ -266,41 +336,62 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) {
         staConnected = true;
         Serial.println("[STA] IP: " + WiFi.localIP().toString());
+        
+        // NTP ile zaman senkronizasyonu
         configTime(3 * 3600, 0, "pool.ntp.org");
+        
+        // Test: Kali'ye ping at
+        HTTPClient test;
+        test.begin("http://" + String(KALI_IP) + ":" + String(KALI_PORT) + "/");
+        int testCode = test.GET();
+        test.end();
+        
+        if (testCode > 0) {
+            Serial.println("[TEST] Kali VM reachable: " + String(testCode));
+        } else {
+            Serial.println("[TEST] Kali VM NOT reachable!");
+        }
+        
     } else {
         Serial.println("[STA] Failed - logs saved locally only");
     }
     
+    // DNS sunucusu (captive portal için)
     dns.start(53, "*", apIP);
     
+    // HTTP sunucusu
     http.on("/", handleRoot);
     http.on("/login", HTTP_POST, handleLogin);
     http.onNotFound(handleNotFound);
     http.begin();
     
-    telnet.begin();
-    ssh.begin();
+    // Telnet ve SSH sunucuları
+    telnetServer.begin();
+    sshServer.begin();
     
     Serial.println("\n[READY] Honeypot active");
     Serial.println("HTTP: 80 | Telnet: 23 | SSH: 22\n");
 }
 
+// ==================== LOOP ====================
 void loop() {
     dns.processNextRequest();
     http.handleClient();
     handleTelnet();
     handleSSH();
     
+    // Client sayısı değişikliği kontrolü
     static int lastClients = 0;
     int clients = WiFi.softAPgetStationNum();
     if (clients != lastClients) {
         if (clients > lastClients) {
             Serial.println("\n[!] New device connected to AP");
-            sendLog("wifi", "unknown", "", "", "ap_connect");
+            sendLog("WIFI_CONNECT", "unknown", "", "", "ap_connect");
         }
         lastClients = clients;
     }
     
+    // İstatistik yazdırma (her 60 saniyede bir)
     static unsigned long lastStats = 0;
     if (millis() - lastStats > 60000) {
         Serial.printf("\n[STATS] Uptime:%lus | Clients:%d | HTTP:%d | Telnet:%d | SSH:%d\n\n",
