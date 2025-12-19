@@ -143,4 +143,6 @@ if __name__ == '__main__':
     print("  IoT Honeypot Dashboard")
     print("  Sunucu adresi: http://0.0.0.0:5000")
     print("="*50 + "\n")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    
+    # async_mode='gevent' veya 'threading' ekleyerek çakışmayı önlüyoruz
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
