@@ -7,16 +7,20 @@
 
 // ==================== YAPILANDIRMA ====================
 // AP Ayarları (Saldırganların bağlanacağı sahte IoT ağı)
-const char* AP_SSID = "SmartCam_Setup_5G";
+const char* AP_SSID = "TEDU CAMERA SYSTEM";
 const char* AP_PASSWORD = "";  // Şifresiz (daha çekici)
 
 // STA Ayarları (Kali ile iletişim için gerçek modem)
-const char* STA_SSID = "AbdullahEsin";           // BURAYA KENDİ MODEM ADI
-const char* STA_PASSWORD = "apobabaa";         // BURAYA KENDİ MODEM ŞİFRESİ
+const char* STA_SSID = "BerkCakmak";           // BURAYA KENDİ MODEM ADI
+const char* STA_PASSWORD = "Berk0202";         // BURAYA KENDİ MODEM ŞİFRESİ
 
 // Kali VM IP (Flask sunucusu çalışacak)
-const char* KALI_IP = "172.20.10.13";
+const char* KALI_IP = "172.20.10.5";
 const int KALI_PORT = 5000;
+
+// Wi-Fi giriş yaparkenki kullanıcı adı ve şifre
+const char* VALID_USER = "admin";
+const char* VALID_PASS = "admin"; 
 
 // AP IP yapılandırması
 IPAddress apIP(192, 168, 4, 1);
@@ -153,46 +157,232 @@ void handleRoot() {
 }
 
 void handleLogin() {
-    String ip = http.client().remoteIP().toString();
+    String ip   = http.client().remoteIP().toString();
     String user = http.arg("username");
     String pass = http.arg("password");
     httpLogins++;
-    
+
+    bool ok = (user == VALID_USER && pass == VALID_PASS);
+
     Serial.println("\n========== HTTP LOGIN ==========");
-    Serial.println("IP: " + ip);
+    Serial.println("IP: "   + ip);
     Serial.println("User: " + user);
     Serial.println("Pass: " + pass);
     Serial.println("================================\n");
-    
-    sendLog("HTTP_LOGIN", ip, user, pass, "");
-    
+
+    sendLog(ok ? "HTTP_LOGIN_OK" : "HTTP_LOGIN_FAIL", ip, user, pass, "");
+
+    if (ok) {
+        // Basit oturum için cookie (30 dk)
+        http.sendHeader("Set-Cookie", "SESSION=ok; Path=/; Max-Age=1800; SameSite=Lax");
+        // Panel'e yönlendir
+        http.sendHeader("Location", "/panel");
+        http.send(302, "text/plain", "OK");
+        return;
+    }
+
+    // ---- başarısız sayfa (mevcut tasarımınızı kullandım) ----
+    String html = R"rawliteral(
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login Failed</title>
+<style>body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#1e3c72,#2a5298);min-height:100vh;display:flex;justify-content:center;align-items:center;color:#fff}
+.box{background:rgba(255,255,255,0.1);padding:40px;border-radius:12px;text-align:center;max-width:350px}
+h2{color:#f87171;margin-bottom:15px}p{margin-bottom:20px;opacity:0.9}
+a{display:inline-block;padding:12px 25px;background:#fff;color:#1e3c72;text-decoration:none;border-radius:6px;font-weight:600}</style>
+</head><body><div class="box">
+<h2>⚠ Authentication Failed</h2><p>Invalid credentials. Please try again.</p>
+<a href="/">Back</a></div></body></html>)rawliteral";
+
+    http.send(401, "text/html", html);
+}
+
+bool isAuthed() {
+    if (!http.hasHeader("Cookie")) return false;
+    String cookie = http.header("Cookie");
+    return cookie.indexOf("SESSION=ok") >= 0;
+}
+
+void handlePanel() {
+    String ip = http.client().remoteIP().toString();
+
+    if (!isAuthed()) {
+        sendLog("HTTP_PANEL_DENY", ip, "", "", "");
+        http.sendHeader("Location", "/");
+        http.send(302, "text/plain", "");
+        return;
+    }
+
+    sendLog("HTTP_PANEL", ip, "", "", "panel_open");
+
     String html = R"rawliteral(
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Failed</title>
-    <style>
-        body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#1e3c72,#2a5298);min-height:100vh;display:flex;justify-content:center;align-items:center;color:#fff}
-        .box{background:rgba(255,255,255,0.1);padding:40px;border-radius:12px;text-align:center;max-width:350px}
-        h2{color:#f87171;margin-bottom:15px}
-        p{margin-bottom:20px;opacity:0.9}
-        a{display:inline-block;padding:12px 25px;background:#fff;color:#1e3c72;text-decoration:none;border-radius:6px;font-weight:600}
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Camera - Dashboard</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg,#0b1220,#0f2a4a);
+      color:#e5e7eb;
+      min-height:100vh;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      padding:24px;
+    }
+    .card{
+      width:100%;
+      max-width:820px;
+      background: rgba(17,24,39,0.85);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius:16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      overflow:hidden;
+    }
+    .top{
+      padding:22px 24px;
+      background: linear-gradient(135deg,#1f2937,#111827);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+    }
+    .title{
+      display:flex; align-items:center; gap:10px;
+    }
+    .title h1{font-size:18px; font-weight:700}
+    .badge{
+      font-size:12px;
+      padding:6px 10px;
+      background: rgba(34,197,94,0.15);
+      border: 1px solid rgba(34,197,94,0.35);
+      border-radius:999px;
+      color:#86efac;
+      white-space:nowrap;
+    }
+    .content{padding:22px 24px}
+    .grid{
+      display:grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap:16px;
+    }
+    @media (max-width: 780px){
+      .grid{grid-template-columns:1fr}
+    }
+    .panel{
+      background: rgba(15,23,42,0.8);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius:14px;
+      padding:16px;
+    }
+    .panel h2{font-size:14px; margin-bottom:10px; opacity:.95}
+    .row{display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.06)}
+    .row:last-child{border-bottom:none}
+    .k{opacity:.75; font-size:13px}
+    .v{font-size:13px; font-weight:600}
+    .muted{opacity:.7; font-size:12px; margin-top:6px; line-height:1.5}
+    .actions{
+      margin-top:14px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    a.btn{
+      display:inline-block;
+      padding:10px 14px;
+      border-radius:10px;
+      text-decoration:none;
+      font-weight:700;
+      font-size:13px;
+      border:1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color:#e5e7eb;
+    }
+    a.btn.primary{
+      background: rgba(59,130,246,0.18);
+      border-color: rgba(59,130,246,0.35);
+      color:#bfdbfe;
+    }
+    a.btn.danger{
+      background: rgba(239,68,68,0.18);
+      border-color: rgba(239,68,68,0.35);
+      color:#fecaca;
+    }
+    .foot{
+      padding:14px 24px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      opacity:.65;
+      font-size:12px;
+    }
+  </style>
 </head>
 <body>
-    <div class="box">
-        <h2>⚠ Authentication Failed</h2>
-        <p>Invalid credentials. Please try again.</p>
-        <a href="/">Back</a>
+  <div class="card">
+    <div class="top">
+      <div class="title">
+        <span style="font-size:18px">📷</span>
+        <h1>Smart Camera - Dashboard</h1>
+      </div>
+      <div class="badge">Status: Online</div>
     </div>
+
+    <div class="content">
+      <div class="grid">
+        <div class="panel">
+          <h2>Welcome</h2>
+          <div class="row"><div class="k">Signed in as</div><div class="v">admin</div></div>
+          <div class="row"><div class="k">Role</div><div class="v">Administrator</div></div>
+          <div class="row"><div class="k">Last sign-in</div><div class="v">Just now</div></div>
+          <p class="muted">
+            You have successfully signed in. Use the options below to manage camera settings.
+          </p>
+
+          <div class="actions">
+            <a class="btn primary" href="#" onclick="alert('Live view is temporarily unavailable.'); return false;">Live View</a>
+            <a class="btn" href="#" onclick="alert('Settings saved.'); return false;">System Settings</a>
+            <a class="btn" href="#" onclick="alert('No updates available.'); return false;">Firmware Update</a>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>System Overview</h2>
+          <div class="row"><div class="k">Device Model</div><div class="v">SC-400X</div></div>
+          <div class="row"><div class="k">Firmware</div><div class="v">v3.2.1</div></div>
+          <div class="row"><div class="k">Security Mode</div><div class="v">Standard</div></div>
+          <p class="muted">
+            For security reasons, network details are not shown in this interface.
+          </p>
+
+          <div class="actions">
+            <a class="btn danger" href="/logout">Logout</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      Smart Camera Management Portal ©️ 2025
+    </div>
+  </div>
 </body>
 </html>
 )rawliteral";
-    
-    http.send(401, "text/html", html);
+
+    http.send(200, "text/html", html);
 }
+
+
+void handleLogout() {
+    // Cookie'yi sıfırla
+    http.sendHeader("Set-Cookie", "SESSION=; Path=/; Max-Age=0; SameSite=Lax");
+    http.sendHeader("Location", "/");
+    http.send(302, "text/plain", "");
+}
+
 
 void handleNotFound() {
     String ip = http.client().remoteIP().toString();
@@ -371,9 +561,14 @@ void setup() {
     // DNS sunucusu (captive portal için)
     dns.start(53, "*", apIP);
     
+    const char* headerKeys[] = { "Cookie" };
+    http.collectHeaders(headerKeys, 1);
+
     // HTTP sunucusu
     http.on("/", handleRoot);
     http.on("/login", HTTP_POST, handleLogin);
+    http.on("/panel", handlePanel);
+    http.on("/logout", handleLogout);
     http.onNotFound(handleNotFound);
     http.begin();
     
@@ -403,6 +598,9 @@ void loop() {
         lastClients = clients;
     }
     
+
+
+
     // İstatistik yazdırma (her 60 saniyede bir)
     static unsigned long lastStats = 0;
     if (millis() - lastStats > 60000) {
