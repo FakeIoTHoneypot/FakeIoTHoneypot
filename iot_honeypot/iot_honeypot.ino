@@ -74,8 +74,8 @@ void sendLog(String protocol, String srcIP, String user, String pass, String ext
         String url = "http://" + String(KALI_IP) + ":" + String(KALI_PORT) + "/log";
         client.begin(url);
         client.addHeader("Content-Type", "application/json");
-        client.setTimeout(3000);
-        
+        client.setTimeout(500);  // 500ms yeterli
+        client.setConnectTimeout(300);
         int code = client.POST(json);
         
         if (code > 0) {
@@ -104,6 +104,7 @@ String getTimestamp() {
 void handleRoot() {
     String ip = http.client().remoteIP().toString();
     sendLog("HTTP_ACCESS", ip, "", "", "page_access");
+    sendLog("POTENTIAL_PIVOT", ip, "", "", "attacker_connected");
     
     String html = R"rawliteral(
 <!DOCTYPE html>
@@ -203,11 +204,14 @@ bool isAuthed() {
 }
 
 void handlePanel() {
+http.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    http.sendHeader("Pragma", "no-cache");
+    http.sendHeader("Expires", "0");
+    
     String ip = http.client().remoteIP().toString();
-
     if (!isAuthed()) {
         sendLog("HTTP_PANEL_DENY", ip, "", "", "");
-        http.sendHeader("Location", "/");
+        http.sendHeader("Location", "/"); 
         http.send(302, "text/plain", "");
         return;
     }
@@ -385,18 +389,21 @@ void handleLogout() {
 
 
 void handleNotFound() {
-    String ip = http.client().remoteIP().toString();
-    String path = http.uri();
-    sendLog("HTTP_SCAN", ip, "", "", path);
+   String path = http.uri();
     
-    // Captive portal redirects
+    // Captive portal - hemen redirect, log yok
     if (path == "/generate_204" || path == "/gen_204" || 
-        path == "/hotspot-detect.html" || path == "/ncsi.txt") {
+        path == "/hotspot-detect.html" || path == "/ncsi.txt" ||
+        path.indexOf("captive") >= 0 || path.indexOf("connect") >= 0) {
         http.sendHeader("Location", "http://192.168.4.1/");
         http.send(302, "text/html", "");
-    } else {
-        http.send(404, "text/html", "<h1>404 Not Found</h1>");
+        return;
     }
+    
+    // Sadece gerçek scan'leri logla
+    String ip = http.client().remoteIP().toString();
+    sendLog("HTTP_SCAN", ip, "", "", path);
+    http.send(404, "text/html", "<h1>404</h1>");
 }
 
 // ==================== TELNET İŞLEYİCİSİ ====================
