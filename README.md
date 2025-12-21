@@ -237,12 +237,11 @@ cd ~/honeypot-dashboard
 
 ### 5.1 Firewall Script'i
 
-
+```bash
 chmod +x ~/honeypot-dashboard/firewall.sh
 sudo ~/honeypot-dashboard/firewall.sh
 ```
 
----
 
 ## 📊 BÖLÜM 6: Log Analizi Scriptleri
 
